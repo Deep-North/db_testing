@@ -1,11 +1,14 @@
 import unittest
+import logging
 import psycopg2
 from psycopg2 import Error
 
-from . import parameters
+import parameters
 
 params = parameters.Parameters()
 
+logging.basicConfig(level=logging.INFO, filename="log.txt",filemode="w",
+                    format="%(asctime)s %(levelname)s %(message)s")
 
 class DB_Positive_Tests(unittest.TestCase):
     """DB positive testing.
@@ -17,17 +20,17 @@ class DB_Positive_Tests(unittest.TestCase):
                                           password=params.password[0],
                                           host=params.host[0],
                                           port=params.port[0],
-                                          database=params.database[0])
+                                          database=params.database)
         cls.connection.set_client_encoding("UTF8")
         cls.cursor = cls.connection.cursor()
-        print("Connection to PostgreSQL established")
+        logging.info("Connection 1 to PostgreSQL established")
 
     @classmethod
     def tearDownClass(cls):
         if cls.connection:
             cls.cursor.close()
             cls.connection.close()
-            print("Connection to PostgreSQL closed")
+            logging.info("Connection 1 to PostgreSQL closed")
 
     def setUp(self) -> None:
         self.sql_execution('''INSERT INTO public."People"("Index", "Name", "DateOfBirth")
@@ -127,17 +130,17 @@ class DB_Negative_Tests(unittest.TestCase):
                                           password=params.password[0],
                                           host=params.host[0],
                                           port=params.port[0],
-                                          database=params.database[0])
+                                          database=params.database)
         cls.connection.set_client_encoding("UTF8")
         cls.cursor = cls.connection.cursor()
-        print("Connection to PostgreSQL established")
+        logging.info("Connection 2 to PostgreSQL established")
 
     @classmethod
     def tearDownClass(cls):
         if cls.connection:
             cls.cursor.close()
             cls.connection.close()
-            print("Connection to PostgreSQL closed")
+            logging.info("Connection 2 to PostgreSQL closed")
 
     def setUp(self) -> None:
         self.sql_execution('''INSERT INTO public."People"("Index", "Name", "DateOfBirth")
@@ -191,6 +194,98 @@ class DB_Negative_Tests(unittest.TestCase):
     def test_delete_from_nonexisting_fields(self):
         self.assertRaises(Exception, self.sql_execution, '''DELETE FROM public."1DateOfBirth"
                                                             WHERE "Index" IN (1,2,3,4,5,6);''')
+
+    #############################    UTILITY METHODS    ##############################
+
+    def query_output(self, query_result):
+        output = []
+        for i in query_result:
+            for j in i:
+                output.append(str(j))
+        return str(output)
+
+    def sql_execution(self, query_body):
+        try:
+            query = query_body
+            self.cursor.execute(query)
+            self.connection.commit()
+        except:
+            self.connection.commit()
+            raise Exception
+
+class DB_Additional_Tests(unittest.TestCase):
+    """DB additional positive testing.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.connection = psycopg2.connect(user=params.user[0],
+                                          password=params.password[0],
+                                          host=params.host[0],
+                                          port=params.port[0],
+                                          database=params.database)
+        cls.connection.set_client_encoding("UTF8")
+        cls.cursor = cls.connection.cursor()
+        logging.info("Connection 3 to PostgreSQL established")
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.connection:
+            cls.cursor.close()
+            cls.connection.close()
+            logging.info("Connection 3 to PostgreSQL closed")
+
+    def setUp(self) -> None:
+        self.sql_execution('''INSERT INTO public."Test_Table"("Index", "Name", "DateOfBirth")
+                                VALUES
+                                (1, 'Andrey', '1984-01-07'),
+                                (2, 'Ivan', '1990-11-17'),
+                                (3, 'John Doe', '2015-04-12'),
+                                (4, 'Jane Doe', '2000-01-25'),
+                                (5, 'Peter', '1934-07-09')
+                                ;''')
+
+    def tearDown(self) -> None:
+        self.sql_execution('''DELETE FROM public."Test_Table" WHERE "Index" IN (1,2,3,4,5);''')
+
+    ##################################    TESTS    ###################################
+
+    def test_select_with_multiple_conditions_query(self):
+        try:
+            self.sql_execution('''SELECT "Index", "Name", "DateOfBirth"
+                                    FROM public."Test_Table"
+                                    WHERE "Index" > 2 and "DateOfBirth" > '1970-01-01';''')
+            query_result = self.cursor.fetchall()
+            output = self.query_output(query_result)
+        except (Exception, Error) as error:
+            print("Error during work with PostgreSQL:\n", error)
+        self.assertEqual(output, "['3', 'John Doe', '2015-04-12', '4', 'Jane Doe', '2000-01-25']")
+
+    def test_update_with_LIKE_condition_query(self):
+        try:
+            self.sql_execution('''UPDATE public."Test_Table"
+                                    SET "Name"='New Name'
+                                    WHERE "Test_Table"."Name" LIKE '%e%';''')
+            self.sql_execution('''SELECT "Index", "Name", "DateOfBirth" FROM public."Test_Table";''')
+            query_result = self.cursor.fetchall()
+            output = self.query_output(query_result)
+
+            self.assertEqual(output, '''['2', 'Ivan', '1990-11-17', '1', 'New Name', '1984-01-07', '3', 'New Name', '2015-04-12', '4', 'New Name', '2000-01-25', '5', 'New Name', '1934-07-09']''')
+
+            self.sql_execution('''UPDATE public."Test_Table" SET "Index"='1', "Name"='Andrey' WHERE "Index" = 101;''')
+        except (Exception, Error) as error:
+            print("Error during work with PostgreSQL:\n", error)
+
+    def test_delete_with_LIKE_condition_query(self):
+        try:
+            self.sql_execution('''DELETE FROM public."Test_Table"
+                                    WHERE "Test_Table"."Name" LIKE '%J%';''')
+            self.sql_execution('''SELECT "Index", "Name", "DateOfBirth" FROM public."Test_Table";''')
+            query_result = self.cursor.fetchall()
+            output = self.query_output(query_result)
+        except (Exception, Error) as error:
+            print("Error during work with PostgreSQL:\n", error)
+        self.assertEqual(output, "['1', 'Andrey', '1984-01-07', '2', 'Ivan', '1990-11-17', '5', 'Peter', '1934-07-09']")
 
     #############################    UTILITY METHODS    ##############################
 
